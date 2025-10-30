@@ -18,11 +18,11 @@ jobs:
           ACCOUNT: "tav-adb"
         run: |
           echo "4me API'den veri çekiliyor..."
-          RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" \
-                           -H "X-Xurrent-Account: $ACCOUNT" \
-                           "https://api.4me.com/v1/requests?per_page=100")
-          echo "$RESPONSE" | jq ".requests" > data.json
-          echo "data.json oluşturuldu."
+          curl -s -H "Authorization: Bearer $TOKEN" \
+               -H "X-Xurrent-Account: $ACCOUNT" \
+               "https://api.4me.com/v1/requests?per_page=100" \
+          | sed -n '/"requests": \[/,/\]/{/"requests": \[/d;/\]/{p;q};p}' > data.json
+          echo "data.json oluşturuldu (saf dizi)."
 
       - name: Commit and push data.json
         run: |
