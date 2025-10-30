@@ -100,8 +100,6 @@ const headersPatch={...headersGet,"Content-Type":"application/json"};
 
 let DATA=[],initialLoaded=false,refreshTimer=null,isRefreshing=false;
 const LS_NAME="tech_name",LS_TEAM="tech_team",LS_NOTES="local_notes";
-
-// Yeni gelenleri takip için
 const SEEN=new Map();
 let NEW_ASSIGNED=new Set();
 
@@ -122,12 +120,45 @@ function paintWho(){const b=document.getElementById("whoBox");const u=getUser();
 function getLocalNotes(){try{return JSON.parse(localStorage.getItem(LS_NOTES)||"{}");}catch{return {};} }
 function saveLocalNotes(n){localStorage.setItem(LS_NOTES,JSON.stringify(n));}
 
+/* --- İş Tipi filtreleme: yalnızca Arıza, Talep/İstek, Aydınlatma --- */
+function isAllowedJob(req) {
+  const lc = s => String(s || "").toLowerCase();
+  const candidates = [
+    lc(req.category),
+    lc(req.category_label),
+    lc(req.request_type),
+    lc(req.request_type_label),
+    lc(req.subject)
+  ];
+  if (Array.isArray(req.custom_fields)) {
+    for (const f of req.custom_fields) {
+      const v = lc(f.value || "");
+      const id = lc(f.id || "");
+      const label = lc(f.label || "");
+      if (id.includes("iş") || label.includes("iş") || id.includes("type") || label.includes("type"))
+        candidates.push(v);
+    }
+  }
+  const ALLOWED = ["arıza", "talep", "istek", "aydınlatma"];
+  const joined = candidates.join(" ");
+  if (ALLOWED.some(w => joined.includes(w))) return true;
+  return false;
+}
+
+/* === API === */
 async function fetchRequests(){
   const r=await fetch(`${CORS}${API}/requests?per_page=100`,{headers:headersGet});
   if(!r.ok)throw new Error("HTTP "+r.status);
   let d=await r.json();
   if(!Array.isArray(d)) d=[];
+  d = d.filter(x => isAllowedJob(x));
   return d;
+}
+
+async function patchRequest(id,body){
+  const r=await fetch(`${CORS}${API}/requests/${id}`,{method:"PATCH",headers:headersPatch,body:JSON.stringify(body)});
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  return await r.json();
 }
 
 async function safeRefresh(){
@@ -136,8 +167,6 @@ async function safeRefresh(){
  isRefreshing=true;
  try{
    const fresh=await fetchRequests();
-
-   // 🔸 Yeni assigned tespiti
    if(SEEN.size===0){
      fresh.forEach(r=>SEEN.set(r.id,r.status));
      NEW_ASSIGNED=new Set();
@@ -152,7 +181,6 @@ async function safeRefresh(){
      SEEN.clear();
      fresh.forEach(r=>SEEN.set(r.id,r.status));
    }
-
    DATA=fresh;
    mergeLocalNotes();
    if(!initialLoaded){fillTeams();initialLoaded=true;}
@@ -197,12 +225,10 @@ function renderList(){
    const card=document.createElement("div");
    card.className="card";
    card.setAttribute("data-id-card",String(r.id));
-
    if(NEW_ASSIGNED.has(r.id)){
      card.classList.add("blink-new");
      setTimeout(()=>{const el=document.querySelector(`[data-id-card='${r.id}']`);el&&el.classList.remove("blink-new");},15000);
    }
-
    card.innerHTML=`
      <div class="row1"><div>${statusBadge(r.status)} <span class="meta">${fmtDate(r.created_at)}</span></div><div class="meta">#${r.id}</div></div>
      <div class="title">${r.team?.name||""}<span class="tag">${r.service_instance?.name||""}</span></div>
