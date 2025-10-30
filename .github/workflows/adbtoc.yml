@@ -9,7 +9,7 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Fetch data from 4me API
@@ -17,17 +17,24 @@ jobs:
           TOKEN: ${{ secrets.FOURME_TOKEN }}
           ACCOUNT: "tav-adb"
         run: |
-          echo "4me API'den veri çekiliyor..."
+          echo "4me API'den veri alınıyor..."
           curl -s -H "Authorization: Bearer $TOKEN" \
                -H "X-Xurrent-Account: $ACCOUNT" \
-               "https://api.4me.com/v1/requests?per_page=100" \
-          | sed -n '/"requests": \[/,/\]/{/"requests": \[/d;/\]/{p;q};p}' > data.json
-          echo "data.json oluşturuldu (saf dizi)."
+               "https://api.4me.com/v1/requests?per_page=100" > full.json
 
-      - name: Commit and push data.json
+          echo "requests dizisi ayrıştırılıyor..."
+          grep -A9999 '"requests": \[' full.json | grep -B9999 '\]' \
+          | sed '1s/.*\[/{/; $s/\].*/}/' \
+          | sed 's/^[^{]*//; s/[^}]*$//' \
+          | awk 'BEGIN{print "["}{if(NR>1)print}END{print "]"}' > data.json
+
+          # Eğer yukarıdaki işe yaramazsa yedek plan:
+          jq '.requests' full.json > data.json || echo "jq başarısız oldu ama sed çıktı verdi."
+
+      - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data.json
-          git commit -m "Auto update data.json" || echo "No changes"
+          git commit -m "Auto update data.json" || echo "Değişiklik yok"
           git push
