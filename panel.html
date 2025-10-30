@@ -14,8 +14,6 @@
     .who{font-size:12px;color:#374151}
     .btn{appearance:none;border:0;border-radius:12px;padding:10px 12px;font-weight:600;font-size:14px;cursor:pointer}
     .btn.ghost{background:#fff;border:1px solid var(--line)}
-    .btn.success{background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff}
-    .btn.blue{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff}
     .btn.red{background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff}
     .toolbar{display:grid;grid-template-columns:1fr auto;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line)}
     .input,select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:15px}
@@ -29,10 +27,6 @@
     .meta{font-size:12px;color:#6b7280}
     .title{font-size:15px;font-weight:700;margin:6px 0;color:#0b1220}
     .sub{font-size:13px;color:#374151;white-space:pre-wrap}
-    .actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
-    .detail{display:none;margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:12px;background:#fafcff}
-    textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;resize:vertical;background:#fff}
-    .detail-actions{display:flex;gap:8px;margin-top:8px}
     .empty{padding:20px;text-align:center;color:#6b7280}
     .toast{position:fixed;left:50%;transform:translateX(-50%) translateY(10px);bottom:14px;background:#0a7c2f;color:#fff;
       padding:10px 14px;border-radius:12px;font-weight:700;box-shadow:0 8px 30px rgba(0,0,0,.18);opacity:0;transition:.25s}
@@ -47,15 +41,13 @@
 <body>
 <header>
   <h1>4me Teknisyen Paneli</h1>
-  <div class="who" id="whoBox"></div>
   <div style="display:flex;gap:8px">
     <button id="refreshBtn" class="btn ghost">Yenile</button>
-    <button id="logoutBtn" class="btn red">Çıkış</button>
   </div>
 </header>
 
 <div class="toolbar">
-  <input id="searchInput" class="input" type="search" placeholder="Konu içinde ara..." />
+  <input id="searchInput" class="input" type="search" placeholder="Konu içinde ara...">
   <select id="statusFilter">
     <option value="" selected>Hepsi</option>
     <option value="assigned">Atandı</option>
@@ -68,8 +60,8 @@
 <div id="toast" class="toast"></div>
 
 <script>
-const API = "https://raw.githubusercontent.com/kemal35/4me-sync/main/data.json"; // senin link
-let DATA = [], initialLoaded = false, isRefreshing = false;
+const API = "https://raw.githubusercontent.com/Kemalg35/adbtoc/main/data.json"; // senin repo
+let DATA = [], isRefreshing = false;
 
 function toast(m, ok=true){
   const t = document.getElementById("toast");
@@ -79,40 +71,40 @@ function toast(m, ok=true){
   setTimeout(()=>t.classList.remove("show"),1600);
 }
 
-function fmtDate(s){
-  try { return new Date(s).toLocaleString("tr-TR"); } catch { return s || ""; }
-}
+function fmtDate(s){ try{return new Date(s).toLocaleString("tr-TR");}catch{return s||"";} }
 
 function statusBadge(s){
-  const map = { assigned:["Atandı","s-assigned"], accepted:["Kabul Edildi","s-accepted"], in_progress:["Devam Ediyor","s-in_progress"] };
+  const map = {assigned:["Atandı","s-assigned"],accepted:["Kabul Edildi","s-accepted"],in_progress:["Devam Ediyor","s-in_progress"]};
   const [l,c] = map[s] || [s,""];
   return `<span class="status ${c}">${l}</span>`;
 }
 
+/* --- Yalnızca Arıza, Talep/İstek ve Aydınlatma olan kayıtlar --- */
 function isAllowedJob(req){
-  const lc = x => String(x||"").toLowerCase();
-  const NEG = ["koruyucu","bakım","bakim","planlı","planli","periyodik","preventive","maintenance","pm"];
-  const text = lc(req.subject||"")+" "+lc(req.category||"")+" "+lc(req.request_type||"");
-  for(const w of NEG) if(text.includes(w)) return false;
-  return text.includes("arıza")||text.includes("talep")||text.includes("istek")||text.includes("incident")||text.includes("request");
+  const lc = s => String(s||"").toLowerCase();
+  const text = [
+    lc(req.subject),
+    lc(req.category),
+    lc(req.request_type),
+    lc(req.category_label),
+    lc(req.request_type_label)
+  ].join(" ");
+  return text.includes("arıza") || text.includes("talep") || text.includes("istek") || text.includes("aydınlatma");
 }
 
 async function fetchData(){
   if(isRefreshing) return;
   isRefreshing = true;
   try {
-    const r = await fetch(API + "?ts="+Date.now());
-    if(!r.ok) throw new Error("HTTP "+r.status);
+    const r = await fetch(API + "?t=" + Date.now());
+    if(!r.ok) throw new Error("HTTP " + r.status);
     const d = await r.json();
     if(Array.isArray(d)){
       DATA = d.filter(isAllowedJob);
       renderList();
-      if(!initialLoaded) initialLoaded = true;
-    } else {
-      throw new Error("Beklenmeyen veri:"+typeof d);
-    }
-  } catch(e) {
-    toast("Veri yüklenmedi: "+e.message,false);
+    } else throw new Error("Geçersiz veri");
+  } catch(e){
+    toast("Veri yüklenemedi: " + e.message, false);
   } finally {
     isRefreshing = false;
   }
@@ -123,27 +115,27 @@ function renderList(){
   const f = document.getElementById("statusFilter").value;
   const list = document.getElementById("list");
   let items = DATA.slice();
-  if(q) items = items.filter(r=> (r.subject||"").toLowerCase().includes(q));
-  if(f) items = items.filter(r=> r.status===f);
+  if(q) items = items.filter(r => (r.subject||"").toLowerCase().includes(q));
+  if(f) items = items.filter(r => r.status === f);
   const order = {assigned:1,accepted:2,in_progress:3};
-  items.sort((a,b)=> (order[a.status]||9)-(order[b.status]||9));
-  if(!items.length) {
-    list.innerHTML = '<div class="empty">Kayıt yok.</div>';
-    return;
-  }
+  items.sort((a,b) => (order[a.status]||9)-(order[b.status]||9));
+  if(!items.length){ list.innerHTML = '<div class="empty">Kayıt yok.</div>'; return; }
   const frag = document.createDocumentFragment();
   for(const r of items){
     const assignee = r.assigned_to?.name || r.assigned_to?.email || "Belirtilmemiş";
-    const note = (r.custom_fields||[]).find(x=> x.id==="work_desc")?.value || "";
-    const card = document.createElement("div"); card.className="card";
-    if(r.status==="assigned") card.classList.add("blink");
+    const note = (r.custom_fields||[]).find(x=>x.id==="work_desc")?.value || "";
+    const card = document.createElement("div");
+    card.className = "card";
+    if(r.status === "assigned") card.classList.add("blink");
     card.innerHTML = `
-      <div class="row1"><div>${statusBadge(r.status)} <span class="meta">${fmtDate(r.created_at)}</span></div><div class="meta">#${r.id}</div></div>
-      <div class="title">${r.team?.name||""}<span class="tag">${r.service_instance?.name||""}</span></div>
-      <div class="sub">${r.subject||""}\n👤 Atanan Kişi: ${assignee}\n${note?`\n🧾 ${note}`:""}\n👷‍♂️ Kullanıcı</div>
-      <div class="actions">
-        <!-- sadece görüntü için; işlem yok -->
+      <div class="row1">
+        <div>${statusBadge(r.status)} <span class="meta">${fmtDate(r.created_at)}</span></div>
+        <div class="meta">#${r.id}</div>
       </div>
+      <div class="title">${r.team?.name||""}</div>
+      <div class="sub">${r.subject||""}
+      \n👤 Atanan Kişi: ${assignee}
+      ${note?`\n🧾 ${note}`:""}</div>
     `;
     frag.appendChild(card);
   }
@@ -155,8 +147,7 @@ document.getElementById("searchInput").oninput = renderList;
 document.getElementById("statusFilter").onchange = renderList;
 
 fetchData();
-setInterval(fetchData, 300000); // 5 dk
-
+setInterval(fetchData, 300000); // 5 dakikada bir yenile
 </script>
 </body>
 </html>
