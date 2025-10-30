@@ -1,0 +1,27 @@
+name: adbtoc 4me Data
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch data from 4me
+        run: |
+          curl -s -H "Authorization: Bearer ${{ secrets.FOURME_TOKEN }}" \
+               -H "X-4me-Account: ${{ secrets.FOURME_ACCOUNT }}" \
+               "https://api.4me.com/v1/requests?per_page=100" > data.json
+
+      - name: Commit and push changes
+        run: |
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add data.json
+          git commit -m "Update data $(date)"
+          git push
