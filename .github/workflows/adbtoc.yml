@@ -17,24 +17,18 @@ jobs:
           TOKEN: ${{ secrets.FOURME_TOKEN }}
           ACCOUNT: "tav-adb"
         run: |
-          echo "4me API'den veri alınıyor..."
+          echo "4me API'den veri çekiliyor..."
           curl -s -H "Authorization: Bearer $TOKEN" \
                -H "X-Xurrent-Account: $ACCOUNT" \
                "https://api.4me.com/v1/requests?per_page=100" > full.json
 
-          echo "requests dizisi ayrıştırılıyor..."
-          grep -A9999 '"requests": \[' full.json | grep -B9999 '\]' \
-          | sed '1s/.*\[/{/; $s/\].*/}/' \
-          | sed 's/^[^{]*//; s/[^}]*$//' \
-          | awk 'BEGIN{print "["}{if(NR>1)print}END{print "]"}' > data.json
-
-          # Eğer yukarıdaki işe yaramazsa yedek plan:
-          jq '.requests' full.json > data.json || echo "jq başarısız oldu ama sed çıktı verdi."
+          echo "requests dizisini çıkar..."
+          jq '.requests' full.json > data.json
 
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data.json
-          git commit -m "Auto update data.json" || echo "Değişiklik yok"
+          git commit -m "update data.json" || echo "no changes"
           git push
