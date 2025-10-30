@@ -2,8 +2,8 @@ name: 4me Data Sync
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # Her 5 dakikada bir otomatik
-  workflow_dispatch:         # Elle çalıştırma seçeneği
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -21,7 +21,7 @@ jobs:
           RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" \
                            -H "X-Xurrent-Account: $ACCOUNT" \
                            "https://api.4me.com/v1/requests?per_page=100")
-          echo "$RESPONSE" | jq '.requests' > data.json
+          echo "$RESPONSE" | jq ".requests" > data.json
           echo "data.json oluşturuldu."
 
       - name: Commit and push data.json
