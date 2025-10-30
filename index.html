@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>4me Teknisyen Mobil Panel</title>
+<style>
+:root{--bg:#f5f7fb;--fg:#0f2740;--line:#e5e7eb;--muted:#6b7280;--card:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);font-family:system-ui,"Segoe UI",Roboto,Arial,sans-serif;color:#0b1220}
+header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--line);
+  padding:10px 14px;display:flex;justify-content:space-between;align-items:center}
+header h1{margin:0;font-size:16px;color:#0f2740;font-weight:700}
+.who{font-size:12px;color:#374151}
+.btn{appearance:none;border:0;border-radius:12px;padding:10px 12px;font-weight:600;font-size:14px;cursor:pointer}
+.btn.ghost{background:#fff;border:1px solid var(--line)}
+.btn.success{background:linear-gradient(135deg,#16a34a,#22c55e);color:#fff}
+.btn.blue{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff}
+.btn.red{background:linear-gradient(135deg,#dc2626,#ef4444);color:#fff}
+.toolbar{display:grid;grid-template-columns:1fr auto;gap:10px;padding:10px 14px;background:#fff;border-bottom:1px solid var(--line)}
+.input,select{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:#fff;font-size:15px}
+.wrap{padding:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;margin:10px 6px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+.row1{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap}
+.status{font-size:12px;font-weight:800;padding:6px 10px;border-radius:999px;border:1px solid var(--line)}
+.s-assigned{background:#fff7ed;color:#b45309;border-color:#fcd34d}
+.s-accepted{background:#f0fdf4;color:#15803d;border-color:#86efac}
+.s-in_progress{background:#eff6ff;color:#1d4ed8;border-color:#93c5fd}
+.meta{font-size:12px;color:#6b7280}
+.title{font-size:15px;font-weight:700;margin:6px 0;color:#0b1220}
+.sub{font-size:13px;color:#374151;white-space:pre-wrap}
+.actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.detail{display:none;margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:12px;background:#fafcff}
+textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);border-radius:10px;font-size:14px;resize:vertical;background:#fff}
+.detail-actions{display:flex;gap:8px;margin-top:8px}
+.empty{padding:20px;text-align:center;color:#6b7280}
+.toast{position:fixed;left:50%;transform:translateX(-50%) translateY(10px);bottom:14px;background:#0a7c2f;color:#fff;
+  padding:10px 14px;border-radius:12px;font-weight:700;box-shadow:0 8px 30px rgba(0,0,0,.18);opacity:0;transition:.25s}
+.toast.show{opacity:1;transform:translateX(-50%)}
+#loginModal{position:fixed;top:0;left:0;width:100%;height:100%;
+  backdrop-filter:blur(10px);background:rgba(0,0,0,.45);
+  display:flex;align-items:center;justify-content:center;z-index:999;visibility:hidden;opacity:0;transition:.3s}
+#loginModal.show{visibility:visible;opacity:1}
+.modal-box{background:#fff;padding:20px;border-radius:14px;max-width:90%;width:360px;text-align:left}
+</style>
+</head>
+<body>
+<header>
+  <h1>4me Teknisyen Paneli</h1>
+  <div class="who" id="whoBox"></div>
+  <div style="display:flex;gap:8px">
+    <button id="refreshBtn" class="btn ghost">Yenile</button>
+    <button id="logoutBtn" class="btn red">Çıkış</button>
+  </div>
+</header>
+
+<div class="toolbar">
+  <input id="searchInput" class="input" type="search" placeholder="Konu içinde ara..." />
+  <select id="statusFilter">
+    <option value="" selected>Hepsi</option>
+    <option value="assigned">Atandı</option>
+    <option value="accepted">Kabul Edildi</option>
+    <option value="in_progress">Devam Ediyor</option>
+  </select>
+</div>
+
+<div id="list" class="wrap"><div class="empty">Yükleniyor…</div></div>
+<div id="toast" class="toast"></div>
+
+<div id="loginModal" class="modal">
+  <div class="modal-box">
+    <h2>Giriş</h2>
+    <p>Ad Soyad gir, ekibini seç.</p>
+    <input id="nameInput" class="input" placeholder="Ad Soyad" style="margin-bottom:10px">
+    <select id="teamSelect" class="input"><option value="">Ekip seçiniz…</option></select>
+    <div style="text-align:right;margin-top:12px">
+      <button id="loginBtn" class="btn blue">Devam</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const TOKEN="diRr9WNCk7ncGJvNj34bynuoaqvm2XzWuvhuclMWDdGcSVpzEdC1q2Bz3XAAma4mpd4y9IHeQk0vSk1csDf4d6RE3dASO6qK47uafWc5GFJNqOhq"; 
+const ACCOUNT="tav-adb";
+const API="https://api.4me.com/v1";
+const CORS="https://cors-anywhere.herokuapp.com/";
+const headersGet={"Authorization":"Bearer "+TOKEN,"Accept":"application/json","X-Xurrent-Account":ACCOUNT};
+const headersPatch={...headersGet,"Content-Type":"application/json"};
+let DATA=[],initialLoaded=false,refreshTimer=null,isRefreshing=false;
+const LS_NAME="tech_name",LS_TEAM="tech_team",LS_NOTES="local_notes";
+
+function toast(m,ok=true){const t=document.getElementById("toast");t.textContent=m;t.style.background=ok?"#0a7c2f":"#9b1c1c";t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1600);}
+function fmtDate(s){try{return new Date(s).toLocaleString("tr-TR");}catch{return s||"";}}
+function statusBadge(s){const map={assigned:["Atandı","s-assigned"],accepted:["Kabul Edildi","s-accepted"],in_progress:["Devam Ediyor","s-in_progress"]};const [l,c]=map[s]||[s,""];return `<span class="status ${c}">${l}</span>`;}
+function getUser(){return {name:localStorage.getItem(LS_NAME)||"",team:localStorage.getItem(LS_TEAM)||""};}
+function setUser(n,t){localStorage.setItem(LS_NAME,n);localStorage.setItem(LS_TEAM,t);paintWho();}
+function clearUser(){localStorage.removeItem(LS_NAME);localStorage.removeItem(LS_TEAM);paintWho();}
+function show(el,on=true){el.classList.toggle("show",on);}
+function paintWho(){const b=document.getElementById("whoBox");const u=getUser();b.textContent=u.name&&u.team?`${u.name} • ${u.team}`:"";}
+function getLocalNotes(){try{return JSON.parse(localStorage.getItem(LS_NOTES)||"{}");}catch{return {};} }
+function saveLocalNotes(n){localStorage.setItem(LS_NOTES,JSON.stringify(n));}
+
+/* --- İş Tipi: Sadece Arıza/Talep; Bakım varyasyonlarını kesin dışla --- */
+function isAllowedJob(req){
+  const lc = s => String(s||"").toLowerCase();
+
+  // Ana tip alanları
+  const main = {
+    category: lc(req.category),
+    category_label: lc(req.category_label),
+    request_type: lc(req.request_type),
+    request_type_label: lc(req.request_type_label)
+  };
+
+  // NEGATİF anahtarlar (her yerde yakalarsak direkt dışla)
+  const NEG = ["koruyucu","bakım","bakim","planlı","planli","periyodik","preventive","maintenance","pm","periyodik bakım","planlı bakım","planli bakim"];
+  const textAll = [
+    main.category, main.category_label, main.request_type, main.request_type_label,
+    lc(req.subject)
+  ].join(" ");
+
+  for(const w of NEG){ if(textAll.includes(w)) return false; }
+
+  // Pozitif: yalnızca ana tip alanlarında 'incident' veya 'request' (ve Türkçe karşılıkları)
+  const POS_INC = (main.category==="incident" || main.request_type==="incident" || main.category_label==="incident" || main.request_type_label==="incident"
+                   || main.category.includes("arıza") || main.request_type.includes("arıza"));
+  const POS_REQ = (main.category==="request" || main.request_type==="request" || main.category_label==="request" || main.request_type_label==="request"
+                   || main.category.includes("talep") || main.request_type.includes("talep") || main.category.includes("istek") || main.request_type.includes("istek"));
+
+  // Eğer ana alanlardan biri açıkça Arıza/Talep ise geç
+  if (POS_INC || POS_REQ) return true;
+
+  // Custom fields: sadece iş-tipi benzeri alan adlarında kontrol et
+  const cf = Array.isArray(req.custom_fields) ? req.custom_fields : [];
+  for(const f of cf){
+    const id = lc(f.id), label = lc(f.label), value = lc(f.value);
+    const looksJob = id.includes("iş") || id.includes("is_tipi") || id.includes("job_type") || id.includes("request_type") || id.includes("category") || label.includes("iş tipi");
+    if(!looksJob) continue;
+
+    // Bakım kokusu varsa direkt dışla
+    for(const w of NEG){ if(value.includes(w)) return false; }
+
+    // Pozitif eşleşme
+    if (value.includes("arıza") || value.includes("incident")) return true;
+    if (value.includes("talep") || value.includes("istek") || value.includes("request")) return true;
+  }
+
+  // Son çare: konu başlığında açık Arıza/Talep/İstek varsa ve bakım kokusu yoksa
+  if (lc(req.subject).includes("arıza")) return true;
+  if (lc(req.subject).includes("talep") || lc(req.subject).includes("istek")) return true;
+
+  return false;
+}
+
+/* === API === */
+async function fetchRequests(){
+  const r=await fetch(`${CORS}${API}/requests?per_page=100`,{headers:headersGet});
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  let d=await r.json();
+  if(!Array.isArray(d)) d=[];
+  d = d.filter(x => isAllowedJob(x));
+  return d;
+}
+
+async function patchRequest(id,body){
+  const r=await fetch(`${CORS}${API}/requests/${id}`,{method:"PATCH",headers:headersPatch,body:JSON.stringify(body)});
+  if(!r.ok)throw new Error("HTTP "+r.status);
+  return await r.json();
+}
+
+async function safeRefresh(){
+ if(isRefreshing) return;
+ if(document.querySelector(".detail[style*='block']")) return;
+ isRefreshing=true;
+ try{
+   const fresh=await fetchRequests();
+   if(Array.isArray(fresh)){
+     DATA=fresh;
+     mergeLocalNotes();
+     if(!initialLoaded){fillTeams();initialLoaded=true;}
+     renderList();
+   }
+ }catch(e){toast("Yenileme hatası",false);}
+ finally{isRefreshing=false;}
+}
+
+function mergeLocalNotes(){
+ const notes=getLocalNotes();
+ for(const r of DATA){
+   if(notes[r.id]){
+     const f=(r.custom_fields||[]).find(x=>x.id==="work_desc");
+     if(f)f.value=notes[r.id];else (r.custom_fields||=[]).push({id:"work_desc",value:notes[r.id]});
+   }
+ }
+}
+
+async function loadFirst(){await safeRefresh();const u=getUser();show(document.getElementById("loginModal"),!(u.name&&u.team));}
+
+function fillTeams(){
+ const s=document.getElementById("teamSelect");
+ const teams=[...new Set(DATA.map(r=>r.team?.name).filter(Boolean))].sort();
+ s.innerHTML='<option value="">Ekip seçiniz…</option>'+teams.map(t=>`<option value="${t}">${t}</option>`).join("");
+}
+
+/* === liste === */
+function renderList(){
+ const q=document.getElementById("searchInput").value.toLowerCase();
+ const f=document.getElementById("statusFilter").value;
+ const list=document.getElementById("list");
+ const u=getUser();
+ let items=DATA.filter(r=>(!u.team||(r.team?.name||"")===u.team));
+ if(q)items=items.filter(r=>(r.subject||"").toLowerCase().includes(q));
+ if(f)items=items.filter(r=>r.status===f);
+ const order={assigned:1,accepted:2,in_progress:3};
+ items.sort((a,b)=>(order[a.status]||9)-(order[b.status]||9));
+ if(!items.length){list.innerHTML='<div class="empty">Kayıt yok.</div>';return;}
+ const frag=document.createDocumentFragment();
+ for(const r of items){
+   const note=(r.custom_fields||[]).find(x=>x.id==="work_desc")?.value||"";
+   const assignee=r.assigned_to?.name||r.assigned_to?.email||"Belirtilmemiş";
+   const card=document.createElement("div");card.className="card";
+   card.innerHTML=`
+     <div class="row1"><div>${statusBadge(r.status)} <span class="meta">${fmtDate(r.created_at)}</span></div><div class="meta">#${r.id}</div></div>
+     <div class="title">${r.team?.name||""}<span class="tag">${r.service_instance?.name||""}</span></div>
+     <div class="sub">${r.subject||""}\n👤 Atanan Kişi: ${assignee}\n${note?`\n🧾 ${note}`:""}\n👷‍♂️ ${u.name}</div>
+     <div class="actions">
+       <button class="btn success" data-act="accept" data-id="${r.id}">Kabul Et</button>
+       <button class="btn blue" data-act="detail" data-id="${r.id}">Açıklama Ekle</button>
+     </div>
+     <div class="detail" id="detail-${r.id}">
+       <textarea id="note-${r.id}" placeholder="Yeni açıklama ekle..."></textarea>
+       <div class="detail-actions">
+         <button class="btn blue" data-act="save" data-id="${r.id}">Kaydet</button>
+         <button class="btn ghost" data-act="close" data-id="${r.id}">Kapat</button>
+       </div>
+     </div>`;
+   frag.appendChild(card);
+ }
+ list.replaceChildren(frag);
+}
+
+/* === etkileşimler === */
+document.getElementById("list").addEventListener("click",async e=>{
+ const btn=e.target.closest("button"); if(!btn)return;
+ const id=+btn.dataset.id,act=btn.dataset.act;
+ if(act==="detail"){const d=document.getElementById(`detail-${id}`);d.style.display=d.style.display==="block"?"none":"block";return;}
+ if(act==="close"){document.getElementById(`detail-${id}`).style.display="none";return;}
+ if(act==="accept"){btn.disabled=true;btn.textContent="Gönderiliyor…";
+   try{
+     await patchRequest(id,{status:"accepted"});
+     toast("Kayıt kabul edildi");
+     const rec=DATA.find(x=>x.id===id);if(rec)rec.status="accepted";
+     renderList();
+   }catch(err){toast("Hata:"+err.message,false);}
+   finally{btn.disabled=false;btn.textContent="Kabul Et";}
+ }
+ if(act==="save"){
+   const ta=document.getElementById(`note-${id}`);const newText=ta.value.trim();if(!newText)return toast("Boş açıklama kaydedilmez",false);
+   const now=fmtDate(new Date());const user=getUser();
+   const rec=DATA.find(x=>x.id===id);
+   const old=(rec.custom_fields||[]).find(x=>x.id==="work_desc")?.value||"";
+   const combined=old+(old?`\n`:"")+`[${now}] ${user.name}: ${newText}`;
+   btn.disabled=true;btn.textContent="Kaydediliyor…";
+   try{
+     await patchRequest(id,{custom_fields:[{id:"work_desc",value:combined}]});
+     const notes=getLocalNotes();notes[id]=combined;saveLocalNotes(notes);
+     if(rec){const f=(rec.custom_fields||[]).find(x=>x.id==="work_desc");
+       if(f)f.value=combined;else(rec.custom_fields||=[]).push({id:"work_desc",value:combined});
+     }
+     toast("Açıklama kaydedildi");
+     document.getElementById(`detail-${id}`).style.display="none";
+     renderList();
+   }catch(err){toast("Hata:"+err.message,false);}
+   finally{btn.disabled=false;btn.textContent="Kaydet";}
+ }
+});
+
+document.getElementById("refreshBtn").onclick=()=>safeRefresh();
+document.getElementById("logoutBtn").onclick=()=>{clearUser();show(document.getElementById("loginModal"),true);};
+document.getElementById("searchInput").oninput=()=>renderList();
+document.getElementById("statusFilter").onchange=()=>renderList();
+document.getElementById("loginBtn").onclick=()=>{
+ const n=document.getElementById("nameInput").value.trim();
+ const t=document.getElementById("teamSelect").value;
+ if(!n)return toast("Ad soyad gir",false);
+ if(!t)return toast("Ekip seç",false);
+ setUser(n,t);show(document.getElementById("loginModal"),false);renderList();
+ if(refreshTimer)clearInterval(refreshTimer);
+ refreshTimer=setInterval(()=>safeRefresh(),10000);
+};
+
+paintWho();
+loadFirst();
+</script>
+</body>
+</html>
