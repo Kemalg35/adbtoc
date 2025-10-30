@@ -42,6 +42,16 @@ textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);bo
   display:flex;align-items:center;justify-content:center;z-index:999;visibility:hidden;opacity:0;transition:.3s}
 #loginModal.show{visibility:visible;opacity:1}
 .modal-box{background:#fff;padding:20px;border-radius:14px;max-width:90%;width:360px;text-align:left}
+
+/* 🔔 Yeni gelen "Atandı" kayıtlarının yanıp sönmesi */
+@keyframes alertBlink {
+  0%, 100% { background:#fee2e2; }
+  50% { background:#ef4444; color:#fff; }
+}
+.blink-new {
+  animation: alertBlink 1.1s ease-in-out infinite;
+  border-color:#ef4444 !important;
+}
 </style>
 </head>
 <body>
@@ -66,6 +76,7 @@ textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);bo
 
 <div id="list" class="wrap"><div class="empty">Yükleniyor…</div></div>
 <div id="toast" class="toast"></div>
+<audio id="notifSound" src="notify.mp3" preload="auto"></audio>
 
 <div id="loginModal" class="modal">
   <div class="modal-box">
@@ -80,14 +91,25 @@ textarea{width:100%;min-height:90px;padding:10px;border:1px solid var(--line);bo
 </div>
 
 <script>
-const TOKEN="diRr9WNCk7ncGJvNj34bynuoaqvm2XzWuvhuclMWDdGcSVpzEdC1q2Bz3XAAma4mpd4y9IHeQk0vSk1csDf4d6RE3dASO6qK47uafWc5GFJNqOhq"; 
+const TOKEN="diRr9WNCk7ncGJvNj34bynuoaqvm2XzWuvhuclMWDdGcSVpzEdC1q2Bz3XAAma4mpd4y9IHeQk0vSk1csDf4d6RE3dASO6qK47uafWc5GFJNqOhq";
 const ACCOUNT="tav-adb";
 const API="https://api.4me.com/v1";
 const CORS="https://cors-anywhere.herokuapp.com/";
 const headersGet={"Authorization":"Bearer "+TOKEN,"Accept":"application/json","X-Xurrent-Account":ACCOUNT};
 const headersPatch={...headersGet,"Content-Type":"application/json"};
+
 let DATA=[],initialLoaded=false,refreshTimer=null,isRefreshing=false;
 const LS_NAME="tech_name",LS_TEAM="tech_team",LS_NOTES="local_notes";
+
+// Yeni gelenleri takip için
+const SEEN=new Map();
+let NEW_ASSIGNED=new Set();
+
+function playSound(){
+  const s=document.getElementById("notifSound");
+  s.currentTime=0;
+  s.play().catch(()=>{});
+}
 
 function toast(m,ok=true){const t=document.getElementById("toast");t.textContent=m;t.style.background=ok?"#0a7c2f":"#9b1c1c";t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1600);}
 function fmtDate(s){try{return new Date(s).toLocaleString("tr-TR");}catch{return s||"";}}
@@ -100,72 +122,12 @@ function paintWho(){const b=document.getElementById("whoBox");const u=getUser();
 function getLocalNotes(){try{return JSON.parse(localStorage.getItem(LS_NOTES)||"{}");}catch{return {};} }
 function saveLocalNotes(n){localStorage.setItem(LS_NOTES,JSON.stringify(n));}
 
-/* --- İş Tipi: Sadece Arıza/Talep; Bakım varyasyonlarını kesin dışla --- */
-function isAllowedJob(req){
-  const lc = s => String(s||"").toLowerCase();
-
-  // Ana tip alanları
-  const main = {
-    category: lc(req.category),
-    category_label: lc(req.category_label),
-    request_type: lc(req.request_type),
-    request_type_label: lc(req.request_type_label)
-  };
-
-  // NEGATİF anahtarlar (her yerde yakalarsak direkt dışla)
-  const NEG = ["koruyucu","bakım","bakim","planlı","planli","periyodik","preventive","maintenance","pm","periyodik bakım","planlı bakım","planli bakim"];
-  const textAll = [
-    main.category, main.category_label, main.request_type, main.request_type_label,
-    lc(req.subject)
-  ].join(" ");
-
-  for(const w of NEG){ if(textAll.includes(w)) return false; }
-
-  // Pozitif: yalnızca ana tip alanlarında 'incident' veya 'request' (ve Türkçe karşılıkları)
-  const POS_INC = (main.category==="incident" || main.request_type==="incident" || main.category_label==="incident" || main.request_type_label==="incident"
-                   || main.category.includes("arıza") || main.request_type.includes("arıza"));
-  const POS_REQ = (main.category==="request" || main.request_type==="request" || main.category_label==="request" || main.request_type_label==="request"
-                   || main.category.includes("talep") || main.request_type.includes("talep") || main.category.includes("istek") || main.request_type.includes("istek"));
-
-  // Eğer ana alanlardan biri açıkça Arıza/Talep ise geç
-  if (POS_INC || POS_REQ) return true;
-
-  // Custom fields: sadece iş-tipi benzeri alan adlarında kontrol et
-  const cf = Array.isArray(req.custom_fields) ? req.custom_fields : [];
-  for(const f of cf){
-    const id = lc(f.id), label = lc(f.label), value = lc(f.value);
-    const looksJob = id.includes("iş") || id.includes("is_tipi") || id.includes("job_type") || id.includes("request_type") || id.includes("category") || label.includes("iş tipi");
-    if(!looksJob) continue;
-
-    // Bakım kokusu varsa direkt dışla
-    for(const w of NEG){ if(value.includes(w)) return false; }
-
-    // Pozitif eşleşme
-    if (value.includes("arıza") || value.includes("incident")) return true;
-    if (value.includes("talep") || value.includes("istek") || value.includes("request")) return true;
-  }
-
-  // Son çare: konu başlığında açık Arıza/Talep/İstek varsa ve bakım kokusu yoksa
-  if (lc(req.subject).includes("arıza")) return true;
-  if (lc(req.subject).includes("talep") || lc(req.subject).includes("istek")) return true;
-
-  return false;
-}
-
-/* === API === */
 async function fetchRequests(){
   const r=await fetch(`${CORS}${API}/requests?per_page=100`,{headers:headersGet});
   if(!r.ok)throw new Error("HTTP "+r.status);
   let d=await r.json();
   if(!Array.isArray(d)) d=[];
-  d = d.filter(x => isAllowedJob(x));
   return d;
-}
-
-async function patchRequest(id,body){
-  const r=await fetch(`${CORS}${API}/requests/${id}`,{method:"PATCH",headers:headersPatch,body:JSON.stringify(body)});
-  if(!r.ok)throw new Error("HTTP "+r.status);
-  return await r.json();
 }
 
 async function safeRefresh(){
@@ -174,12 +136,27 @@ async function safeRefresh(){
  isRefreshing=true;
  try{
    const fresh=await fetchRequests();
-   if(Array.isArray(fresh)){
-     DATA=fresh;
-     mergeLocalNotes();
-     if(!initialLoaded){fillTeams();initialLoaded=true;}
-     renderList();
+
+   // 🔸 Yeni assigned tespiti
+   if(SEEN.size===0){
+     fresh.forEach(r=>SEEN.set(r.id,r.status));
+     NEW_ASSIGNED=new Set();
+   }else{
+     const newly=[];
+     for(const r of fresh){
+       const prev=SEEN.get(r.id);
+       if(r.status==="assigned" && prev!=="assigned") newly.push(r.id);
+     }
+     NEW_ASSIGNED=new Set(newly);
+     if(NEW_ASSIGNED.size>0) playSound();
+     SEEN.clear();
+     fresh.forEach(r=>SEEN.set(r.id,r.status));
    }
+
+   DATA=fresh;
+   mergeLocalNotes();
+   if(!initialLoaded){fillTeams();initialLoaded=true;}
+   renderList();
  }catch(e){toast("Yenileme hatası",false);}
  finally{isRefreshing=false;}
 }
@@ -202,7 +179,6 @@ function fillTeams(){
  s.innerHTML='<option value="">Ekip seçiniz…</option>'+teams.map(t=>`<option value="${t}">${t}</option>`).join("");
 }
 
-/* === liste === */
 function renderList(){
  const q=document.getElementById("searchInput").value.toLowerCase();
  const f=document.getElementById("statusFilter").value;
@@ -218,7 +194,15 @@ function renderList(){
  for(const r of items){
    const note=(r.custom_fields||[]).find(x=>x.id==="work_desc")?.value||"";
    const assignee=r.assigned_to?.name||r.assigned_to?.email||"Belirtilmemiş";
-   const card=document.createElement("div");card.className="card";
+   const card=document.createElement("div");
+   card.className="card";
+   card.setAttribute("data-id-card",String(r.id));
+
+   if(NEW_ASSIGNED.has(r.id)){
+     card.classList.add("blink-new");
+     setTimeout(()=>{const el=document.querySelector(`[data-id-card='${r.id}']`);el&&el.classList.remove("blink-new");},15000);
+   }
+
    card.innerHTML=`
      <div class="row1"><div>${statusBadge(r.status)} <span class="meta">${fmtDate(r.created_at)}</span></div><div class="meta">#${r.id}</div></div>
      <div class="title">${r.team?.name||""}<span class="tag">${r.service_instance?.name||""}</span></div>
@@ -238,42 +222,6 @@ function renderList(){
  }
  list.replaceChildren(frag);
 }
-
-/* === etkileşimler === */
-document.getElementById("list").addEventListener("click",async e=>{
- const btn=e.target.closest("button"); if(!btn)return;
- const id=+btn.dataset.id,act=btn.dataset.act;
- if(act==="detail"){const d=document.getElementById(`detail-${id}`);d.style.display=d.style.display==="block"?"none":"block";return;}
- if(act==="close"){document.getElementById(`detail-${id}`).style.display="none";return;}
- if(act==="accept"){btn.disabled=true;btn.textContent="Gönderiliyor…";
-   try{
-     await patchRequest(id,{status:"accepted"});
-     toast("Kayıt kabul edildi");
-     const rec=DATA.find(x=>x.id===id);if(rec)rec.status="accepted";
-     renderList();
-   }catch(err){toast("Hata:"+err.message,false);}
-   finally{btn.disabled=false;btn.textContent="Kabul Et";}
- }
- if(act==="save"){
-   const ta=document.getElementById(`note-${id}`);const newText=ta.value.trim();if(!newText)return toast("Boş açıklama kaydedilmez",false);
-   const now=fmtDate(new Date());const user=getUser();
-   const rec=DATA.find(x=>x.id===id);
-   const old=(rec.custom_fields||[]).find(x=>x.id==="work_desc")?.value||"";
-   const combined=old+(old?`\n`:"")+`[${now}] ${user.name}: ${newText}`;
-   btn.disabled=true;btn.textContent="Kaydediliyor…";
-   try{
-     await patchRequest(id,{custom_fields:[{id:"work_desc",value:combined}]});
-     const notes=getLocalNotes();notes[id]=combined;saveLocalNotes(notes);
-     if(rec){const f=(rec.custom_fields||[]).find(x=>x.id==="work_desc");
-       if(f)f.value=combined;else(rec.custom_fields||=[]).push({id:"work_desc",value:combined});
-     }
-     toast("Açıklama kaydedildi");
-     document.getElementById(`detail-${id}`).style.display="none";
-     renderList();
-   }catch(err){toast("Hata:"+err.message,false);}
-   finally{btn.disabled=false;btn.textContent="Kaydet";}
- }
-});
 
 document.getElementById("refreshBtn").onclick=()=>safeRefresh();
 document.getElementById("logoutBtn").onclick=()=>{clearUser();show(document.getElementById("loginModal"),true);};
