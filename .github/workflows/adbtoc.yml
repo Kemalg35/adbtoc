@@ -2,8 +2,8 @@ name: 4me Data Sync
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+    - cron: "*/5 * * * *"  # 5 dakikada bir çalışır
+  workflow_dispatch:        # elle tetikleme için
 
 jobs:
   sync:
@@ -12,25 +12,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch data from 4me API
+      - name: Fetch 4me requests and extract list
         env:
           TOKEN: ${{ secrets.FOURME_TOKEN }}
           ACCOUNT: "tav-adb"
         run: |
-          echo "4me API'den veri çekiliyor..."
+          echo "4me verileri çekiliyor..."
           curl -s -H "Authorization: Bearer $TOKEN" \
                -H "X-Xurrent-Account: $ACCOUNT" \
-               "https://api.4me.com/v1/requests?per_page=100" > full.json
+               "https://api.4me.com/v1/requests?per_page=100" > full_raw.json
 
-          echo "requests dizisini çıkar..."
-          cat full.json | sed -n '/"requests": \[/,/\]/{/"requests": \[/d;/\]/d;p;}' | sed '1s/^/[/' | sed '$s/$/]/' > data.json
+          # Yalnızca 'requests' dizisini çıkarıyoruz
+          cat full_raw.json | sed -n '/"requests": \[/,/\]/{/"requests": \[/d;/\]/d;p;}' | sed '1s/^/[/' | sed '$s/$/]/' > data.json
 
-
-      - name: Commit and push
+      - name: Commit and push updated data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data.json
           git commit -m "update data.json" || echo "no changes"
           git push
-
