@@ -23,7 +23,8 @@ jobs:
                "https://api.4me.com/v1/requests?per_page=100" > full.json
 
           echo "requests dizisini çıkar..."
-          jq '.requests' full.json > data.json
+          cat full.json | sed -n '/"requests": \[/,/\]/{/"requests": \[/d;/\]/d;p;}' | sed '1s/^/[/' | sed '$s/$/]/' > data.json
+
 
       - name: Commit and push
         run: |
@@ -32,3 +33,4 @@ jobs:
           git add data.json
           git commit -m "update data.json" || echo "no changes"
           git push
+
